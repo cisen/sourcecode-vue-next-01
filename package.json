@@ -5,6 +5,7 @@
   ],
   "scripts": {
     "dev": "node scripts/dev.js",
+    "start": "cd packages/vue && http-server .",
     "build": "node scripts/build.js",
     "size-runtime": "node scripts/build.js runtime-dom -p -f global",
     "size-compiler": "node scripts/build.js compiler-dom -p -f global",
@@ -33,6 +34,7 @@
     "chalk": "^2.4.2",
     "execa": "^2.0.4",
     "fs-extra": "^8.1.0",
+    "http-server": "^0.11.1",
     "jest": "^24.9.0",
     "lerna": "^3.16.4",
     "lint-staged": "^9.2.3",
