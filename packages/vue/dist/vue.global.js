@@ -3928,7 +3928,7 @@ var Vue = (function (exports) {
       nonReactiveValues.add(value);
       return value;
   }
-
+  // 包括递归依赖关系的所有正在执行的effect收集
   const effectStack = [];
   const ITERATE_KEY = Symbol('iterate');
   function isEffect(fn) {
@@ -3958,6 +3958,7 @@ var Vue = (function (exports) {
   // effect就是添加这些属性的computed的getter函数
   function createReactiveEffect(fn, options) {
       const effect = function reactiveEffect(...args) {
+          // 递归执行effect，并将effect存到effectStack
           return run(effect, fn, args);
       };
       effect._isEffect = true;
@@ -3968,7 +3969,7 @@ var Vue = (function (exports) {
       return effect;
   }
   // effectStack是全局变量，这里是执行computed的getter函数
-  //
+  // 这个run可能会被递归执行，但是effectStack是全局的
   function run(effect, fn, args) {
       if (!effect.active) {
           return fn(...args);
@@ -3980,8 +3981,11 @@ var Vue = (function (exports) {
               // 将effect插入effectStack
               effectStack.push(effect);
               // 执行computed的getter函数
+              // 这里可能会有递归，就是computed改变data1，然后data1的proxy又监听到改变，然后又执行trigger，然后就这样递归
+              // 所以这里的执行顺序可能是：push-fn(1)-push-fn(2)-push-fn(3)....pop(3)-pop(3)-pop(3)，但effectStack都是同一个
               return fn(...args);
           }
+          // 就算try使用了return，还是会执行finally的
           finally {
               effectStack.pop();
           }
@@ -4009,11 +4013,11 @@ var Vue = (function (exports) {
   // type就是get/set
   // target就是data/methons/mounted
   function track(target, type, key) {
-      // 如果effectStack是空的
+      // 如果没有正在执行的effect，则直接返回
       if (!shouldTrack || effectStack.length === 0) {
           return;
       }
-      // 获取最后一个effect
+      // 获取最后一个effect，因为最后一个effect肯定是自己的或者父effect(父子关系在run(effect, fn, args))
       const effect = effectStack[effectStack.length - 1];
       if (type === "iterate" /* ITERATE */) {
           key = ITERATE_KEY;
@@ -4029,6 +4033,7 @@ var Vue = (function (exports) {
           depsMap.set(key, (dep = new Set()));
       }
       // 如果dep里面没有包含这个effect
+      // 如果当前target[key]的dep没有这个父effect的订阅，则让父effect订阅这个dep
       if (!dep.has(effect)) {
           dep.add(effect);
           effect.deps.push(dep);
@@ -4043,6 +4048,7 @@ var Vue = (function (exports) {
       }
   }
   // 从data/computed/methon里面根据key获取所有订阅key对应数据改变的effect，并全部执行
+  // 所以这里其实只有执行effect的作用
   function trigger(target, type, key, extraInfo) {
       // 获取是data/computed/methon的map
       const depsMap = targetMap.get(target);
@@ -4079,7 +4085,7 @@ var Vue = (function (exports) {
       // 执行所有的effects
       effects.forEach(run);
   }
-  // 将dep下面的effect全部丢到effectst集合
+  // 将dep下面的effect全部丢到effectst集合，最后一起执行
   function addRunners(effects, computedRunners, effectsToAdd) {
       if (effectsToAdd !== void 0) {
           effectsToAdd.forEach(effect => {
@@ -4197,11 +4203,14 @@ var Vue = (function (exports) {
           }
       };
   }
+  // 如果computed是子effect，则其父effect也应该订阅所有子的订阅
   function trackChildRun(childRunner) {
       if (effectStack.length === 0) {
           return;
       }
+      // 最后一个是父的effect，父子关系在run函数
       const parentRunner = effectStack[effectStack.length - 1];
+      // 便利子effect的所有订阅dep，如果父effect没有订阅这些dep，则让这个父也订阅
       for (let i = 0; i < childRunner.deps.length; i++) {
           const dep = childRunner.deps[i];
           if (!dep.has(parentRunner)) {
